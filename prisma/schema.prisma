@@ -1,0 +1,46 @@
+// Voice Delivery App — database schema.
+// Column-level format rules (4-digit login ID, yyyy-mm-dd dates) are enforced
+// by CHECK constraints in the initial migration, in addition to DTO validation.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id         Int              @id @default(autoincrement())
+  /// Middle 4 digits of the phone number. CHECK: ^[0-9]{4}$
+  loginId    String           @unique @db.Char(4)
+  /// bcrypt hash of the 8-digit numeric password (never plaintext).
+  password   String
+  fullName   String           @db.VarChar(50)
+  churchName String           @default("joongang") @db.VarChar(100)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  deliveries DeliveryRecord[]
+
+  @@map("users")
+}
+
+model DeliveryRecord {
+  delivery_number  Int      @id @default(autoincrement())
+  /// 납품처
+  company_name     String   @db.VarChar(100)
+  /// 상품명
+  product_name     String   @db.VarChar(100)
+  /// 수량, e.g. "4통"
+  product_quantity String   @db.VarChar(50)
+  /// yyyy-mm-dd. CHECK: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+  delivery_date    String   @db.VarChar(10)
+  userid           Int
+  user             User     @relation(fields: [userid], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+
+  @@index([userid, delivery_date])
+  @@map("delivery_records")
+}
