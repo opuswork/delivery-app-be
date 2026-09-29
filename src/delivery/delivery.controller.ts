@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -8,6 +16,7 @@ import { CreateDeliveryBatchDto } from './dto/create-delivery-batch.dto';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import type { DeliveryResponseDto } from './dto/delivery-response.dto';
 import { ListDeliveriesQuery } from './dto/list-deliveries.query';
+import { UpdateDeliveryGroupDto } from './dto/update-delivery-group.dto';
 
 @Controller('deliveries')
 @UseGuards(JwtAuthGuard)
@@ -37,5 +46,14 @@ export class DeliveryController {
     @Body() dto: CreateDeliveryBatchDto,
   ): Promise<DeliveryResponseDto[]> {
     return this.deliveryService.createBatch(user.id, dto);
+  }
+
+  /** Edit (or, with no items, delete) one company block of a day. */
+  @Put('group')
+  updateGroup(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateDeliveryGroupDto,
+  ): Promise<DeliveryResponseDto[]> {
+    return this.deliveryService.updateGroup(user.id, dto);
   }
 }

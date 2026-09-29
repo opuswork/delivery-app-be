@@ -247,6 +247,190 @@ describe('Voice Delivery API (e2e)', () => {
       });
     });
 
+    describe('PUT /deliveries/group', () => {
+      interface Rec {
+        delivery_number: number;
+        company_name: string;
+        product_name: string;
+        product_quantity: string;
+        delivery_date: string;
+      }
+      const put = (token: string, body: object) =>
+        request(app.getHttpServer())
+          .put('/deliveries/group')
+          .set('Authorization', `Bearer ${token}`)
+          .send(body);
+      const month = async (m: string) =>
+        (
+          await request(app.getHttpServer())
+            .get(`/deliveries?month=${m}`)
+            .set('Authorization', `Bearer ${tokenA}`)
+            .expect(200)
+        ).body as Rec[];
+      const createGroup = async () =>
+        (
+          await request(app.getHttpServer())
+            .post('/deliveries/batch')
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send({
+              company_name: '신선유통',
+              delivery_date: '2026-12-07',
+              items: [
+                {
+                  product_name: '깔끔한 국간장 120ml',
+                  product_quantity: '10개',
+                },
+                { product_name: '생명물관장 120ml', product_quantity: '5개' },
+              ],
+            })
+            .expect(201)
+        ).body as Rec[];
+
+      afterEach(async () => {
+        await prisma.deliveryRecord.deleteMany({
+          where: { delivery_date: { gte: '2026-12-01', lt: '2027-02-01' } },
+        });
+      });
+
+      it('updates, adds and deletes rows in one step', async () => {
+        const [first, second] = await createGroup();
+        const res = await put(tokenA, {
+          delivery_numbers: [first.delivery_number, second.delivery_number],
+          company_name: '신선유통상사',
+          delivery_date: '2026-12-08',
+          items: [
+            {
+              delivery_number: first.delivery_number,
+              product_name: '깔끔한 국간장 120ml',
+              product_quantity: '12개',
+            },
+            { product_name: '양조간장 500ml', product_quantity: '3박스' },
+          ],
+        }).expect(200);
+
+        const saved = res.body as Rec[];
+        expect(saved).toHaveLength(2);
+        expect(saved[0]).toMatchObject({
+          delivery_number: first.delivery_number,
+          product_quantity: '12개',
+        });
+        const december = await month('2026-12');
+        expect(december).toHaveLength(2);
+        expect(
+          december.every(
+            (r) =>
+              r.company_name === '신선유통상사' &&
+              r.delivery_date === '2026-12-08',
+          ),
+        ).toBe(true);
+        expect(december.map((r) => r.delivery_number)).not.toContain(
+          second.delivery_number,
+        );
+      });
+
+      it('moves the block to another month', async () => {
+        const rows = await createGroup();
+        await put(tokenA, {
+          delivery_numbers: rows.map((r) => r.delivery_number),
+          company_name: '신선유통',
+          delivery_date: '2027-01-05',
+          items: rows.map(
+            ({ delivery_number, product_name, product_quantity }) => ({
+              delivery_number,
+              product_name,
+              product_quantity,
+            }),
+          ),
+        }).expect(200);
+        expect(await month('2026-12')).toEqual([]);
+        expect(await month('2027-01')).toHaveLength(2);
+      });
+
+      it('deletes the whole block when items is empty', async () => {
+        const rows = await createGroup();
+        await put(tokenA, {
+          delivery_numbers: rows.map((r) => r.delivery_number),
+          company_name: '신선유통',
+          delivery_date: '2026-12-07',
+          items: [],
+        }).expect(200);
+        expect(await month('2026-12')).toEqual([]);
+      });
+
+      it("rejects another user's rows with 404 and changes nothing", async () => {
+        const rows = await createGroup();
+        await put(tokenB, {
+          delivery_numbers: rows.map((r) => r.delivery_number),
+          company_name: 'hacked',
+          delivery_date: '2026-12-07',
+          items: [],
+        }).expect(404);
+        expect(await month('2026-12')).toHaveLength(2);
+      });
+
+      it.each([
+        [
+          'an item id outside the group',
+          (ids: number[]) => ({
+            items: [
+              {
+                delivery_number: 999999,
+                product_name: 'x',
+                product_quantity: '1개',
+              },
+            ],
+            delivery_numbers: ids,
+          }),
+        ],
+        [
+          'an empty quantity',
+          (ids: number[]) => ({
+            items: [
+              {
+                delivery_number: ids[0],
+                product_name: 'x',
+                product_quantity: '',
+              },
+            ],
+            delivery_numbers: ids,
+          }),
+        ],
+        [
+          'an impossible date',
+          (ids: number[]) => ({
+            items: [],
+            delivery_numbers: ids,
+            delivery_date: '2026-02-30',
+          }),
+        ],
+        ['no delivery_numbers', () => ({ items: [], delivery_numbers: [] })],
+      ] as [string, (ids: number[]) => object][])(
+        'rejects %s with 400 and changes nothing',
+        async (_label, build) => {
+          const rows = await createGroup();
+          const ids = rows.map((r) => r.delivery_number);
+          await put(tokenA, {
+            company_name: '신선유통',
+            delivery_date: '2026-12-07',
+            ...build(ids),
+          }).expect(400);
+          const december = await month('2026-12');
+          expect(december.map((r) => r.product_quantity).sort()).toEqual([
+            '10개',
+            '5개',
+          ]);
+        },
+      );
+
+      it('allows PUT from the frontend origin (CORS)', async () => {
+        const res = await request(app.getHttpServer())
+          .options('/deliveries/group')
+          .set('Origin', 'http://localhost:3100')
+          .set('Access-Control-Request-Method', 'PUT');
+        expect(res.headers['access-control-allow-methods']).toContain('PUT');
+      });
+    });
+
     it('validates the month query', async () => {
       await request(app.getHttpServer())
         .get('/deliveries?month=2026-9')
