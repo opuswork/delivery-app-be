@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateDeliveryBatchDto } from './dto/create-delivery-batch.dto';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import {
   DELIVERY_RESPONSE_SELECT,
@@ -44,5 +45,26 @@ export class DeliveryService {
       },
       select: DELIVERY_RESPONSE_SELECT,
     });
+  }
+
+  /** Saves every item as its own record, all-or-nothing. */
+  createBatch(
+    userId: number,
+    dto: CreateDeliveryBatchDto,
+  ): Promise<DeliveryResponseDto[]> {
+    return this.prisma.$transaction(
+      dto.items.map((item) =>
+        this.prisma.deliveryRecord.create({
+          data: {
+            company_name: dto.company_name,
+            product_name: item.product_name,
+            product_quantity: item.product_quantity,
+            delivery_date: dto.delivery_date,
+            userid: userId,
+          },
+          select: DELIVERY_RESPONSE_SELECT,
+        }),
+      ),
+    );
   }
 }

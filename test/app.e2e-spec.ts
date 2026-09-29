@@ -172,6 +172,81 @@ describe('Voice Delivery API (e2e)', () => {
       expect(nextMonth.body).toEqual([]);
     });
 
+    describe('POST /deliveries/batch', () => {
+      const batch = {
+        company_name: '신선유통',
+        delivery_date: '2026-11-03',
+        items: [
+          { product_name: '깔끔한국간장', product_quantity: '3통' },
+          { product_name: '생명물간장', product_quantity: '2박스' },
+        ],
+      };
+      const november = () =>
+        request(app.getHttpServer())
+          .get('/deliveries?month=2026-11')
+          .set('Authorization', `Bearer ${tokenA}`);
+
+      it.each([
+        ['empty items', { ...batch, items: [] }],
+        ['11 items', { ...batch, items: Array(11).fill(batch.items[0]) }],
+        [
+          'an item without quantity',
+          {
+            ...batch,
+            items: [
+              batch.items[0],
+              { product_name: '생명물간장', product_quantity: '' },
+            ],
+          },
+        ],
+        [
+          'userid inside an item',
+          { ...batch, items: [{ ...batch.items[0], userid: 1 }] },
+        ],
+        ['impossible date', { ...batch, delivery_date: '2026-11-31' }],
+      ] as [string, object][])(
+        'rejects %s with 400 and saves nothing',
+        async (_label, body) => {
+          await request(app.getHttpServer())
+            .post('/deliveries/batch')
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send(body)
+            .expect(400);
+          expect((await november().expect(200)).body).toEqual([]);
+        },
+      );
+
+      it('saves one record per item with the shared company and date', async () => {
+        const res = await request(app.getHttpServer())
+          .post('/deliveries/batch')
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send(batch)
+          .expect(201);
+        expect(res.body).toEqual([
+          expect.objectContaining({
+            company_name: '신선유통',
+            product_name: '깔끔한국간장',
+            product_quantity: '3통',
+            delivery_date: '2026-11-03',
+          }),
+          expect.objectContaining({
+            company_name: '신선유통',
+            product_name: '생명물간장',
+            product_quantity: '2박스',
+            delivery_date: '2026-11-03',
+          }),
+        ]);
+        expect((await november().expect(200)).body).toHaveLength(2);
+      });
+
+      it('requires a token', async () => {
+        await request(app.getHttpServer())
+          .post('/deliveries/batch')
+          .send(batch)
+          .expect(401);
+      });
+    });
+
     it('validates the month query', async () => {
       await request(app.getHttpServer())
         .get('/deliveries?month=2026-9')
