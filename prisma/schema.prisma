@@ -28,18 +28,14 @@ model User {
 }
 
 model DeliveryRecord {
-  delivery_number  Int      @id @default(autoincrement())
-  /// 납품처
-  company_name     String   @db.VarChar(100)
-  /// 상품명
-  product_name     String   @db.VarChar(100)
-  /// 수량, e.g. "4통"
-  product_quantity String   @db.VarChar(50)
-  /// yyyy-mm-dd. CHECK: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
-  delivery_date    String   @db.VarChar(10)
-  userid           Int
-  user             User     @relation(fields: [userid], references: [id], onDelete: Cascade)
-  createdAt        DateTime @default(now())
+  delivery_number Int      @id @default(autoincrement())
+  /// 납품일, yyyy-mm-dd. CHECK: ^[0-9]{4}-[0-9]{2}-[0-9]{2}$
+  delivery_date   String   @db.VarChar(10)
+  /// Free text, e.g. "홈플러스 1급진간장 1.8리터 10통"
+  memo            String   @db.VarChar(1000)
+  userid          Int
+  user            User     @relation(fields: [userid], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
 
   @@index([userid, delivery_date])
   @@map("delivery_records")

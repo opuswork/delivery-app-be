@@ -1,7 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
+  Param,
   Post,
   Put,
   Query,
@@ -12,11 +16,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { AuthUser } from '../common/types/auth.types';
 import { DeliveryService } from './delivery.service';
-import { CreateDeliveryBatchDto } from './dto/create-delivery-batch.dto';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
+import { DeliveryNumberParam } from './dto/delivery-number.param';
 import type { DeliveryResponseDto } from './dto/delivery-response.dto';
 import { ListDeliveriesQuery } from './dto/list-deliveries.query';
-import { UpdateDeliveryGroupDto } from './dto/update-delivery-group.dto';
 
 @Controller('deliveries')
 @UseGuards(JwtAuthGuard)
@@ -39,21 +42,21 @@ export class DeliveryController {
     return this.deliveryService.create(user.id, dto);
   }
 
-  /** Several products for one 납품처 and 납품일 (one recording). */
-  @Post('batch')
-  createBatch(
+  @Put(':id')
+  update(
     @CurrentUser() user: AuthUser,
-    @Body() dto: CreateDeliveryBatchDto,
-  ): Promise<DeliveryResponseDto[]> {
-    return this.deliveryService.createBatch(user.id, dto);
+    @Param() { id }: DeliveryNumberParam,
+    @Body() dto: CreateDeliveryDto,
+  ): Promise<DeliveryResponseDto> {
+    return this.deliveryService.update(user.id, id, dto);
   }
 
-  /** Edit (or, with no items, delete) one company block of a day. */
-  @Put('group')
-  updateGroup(
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
     @CurrentUser() user: AuthUser,
-    @Body() dto: UpdateDeliveryGroupDto,
-  ): Promise<DeliveryResponseDto[]> {
-    return this.deliveryService.updateGroup(user.id, dto);
+    @Param() { id }: DeliveryNumberParam,
+  ): Promise<void> {
+    return this.deliveryService.remove(user.id, id);
   }
 }

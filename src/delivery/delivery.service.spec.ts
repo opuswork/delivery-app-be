@@ -1,3 +1,5 @@
+import { NotFoundException } from '@nestjs/common';
+
 import { PrismaService } from '../prisma/prisma.service';
 import { DeliveryService, monthRange } from './delivery.service';
 
@@ -20,49 +22,24 @@ describe('monthRange', () => {
 describe('DeliveryService', () => {
   let findMany: jest.Mock;
   let create: jest.Mock;
-  let transaction: jest.Mock;
+  let updateMany: jest.Mock;
+  let deleteMany: jest.Mock;
   let service: DeliveryService;
 
   beforeEach(() => {
     findMany = jest.fn().mockResolvedValue([]);
     create = jest.fn().mockResolvedValue({ delivery_number: 1 });
-    transaction = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
+    updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    deleteMany = jest.fn().mockResolvedValue({ count: 0 });
     service = new DeliveryService({
-      deliveryRecord: { findMany, create },
-      $transaction: transaction,
+      deliveryRecord: {
+        findMany,
+        create,
+        updateMany,
+        deleteMany,
+        findUniqueOrThrow: jest.fn(),
+      },
     } as unknown as PrismaService);
-  });
-
-  it('saves every batch item as its own record in one transaction', async () => {
-    await service.createBatch(7, {
-      company_name: '신선유통',
-      delivery_date: '2026-10-03',
-      items: [
-        { product_name: '깔끔한국간장', product_quantity: '3통' },
-        { product_name: '생명물간장', product_quantity: '2박스' },
-      ],
-    });
-
-    expect(transaction).toHaveBeenCalledTimes(1);
-    const datas = (create.mock.calls as [{ data: object }][]).map(
-      ([args]) => args.data,
-    );
-    expect(datas).toEqual([
-      {
-        company_name: '신선유통',
-        product_name: '깔끔한국간장',
-        product_quantity: '3통',
-        delivery_date: '2026-10-03',
-        userid: 7,
-      },
-      {
-        company_name: '신선유통',
-        product_name: '생명물간장',
-        product_quantity: '2박스',
-        delivery_date: '2026-10-03',
-        userid: 7,
-      },
-    ]);
   });
 
   it('lists only the given user’s records within the month', async () => {
@@ -80,19 +57,33 @@ describe('DeliveryService', () => {
 
   it('creates the record for the authenticated user', async () => {
     await service.create(7, {
-      company_name: '하나마트',
-      product_name: '1급진간장1.8L',
-      product_quantity: '4통',
-      delivery_date: '2026-09-30',
+      delivery_date: '2026-10-07',
+      memo: '홈플러스 1급진간장 1.8리터 10통',
     });
 
     const [[args]] = create.mock.calls as [[{ data: Record<string, unknown> }]];
     expect(args.data).toEqual({
-      company_name: '하나마트',
-      product_name: '1급진간장1.8L',
-      product_quantity: '4통',
-      delivery_date: '2026-09-30',
+      delivery_date: '2026-10-07',
+      memo: '홈플러스 1급진간장 1.8리터 10통',
       userid: 7,
     });
+  });
+
+  it('only updates records owned by the user', async () => {
+    await expect(
+      service.update(7, 3, { delivery_date: '2026-10-07', memo: 'x' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    const [[args]] = updateMany.mock.calls as [[{ where: unknown }]];
+    expect(args.where).toEqual({ delivery_number: 3, userid: 7 });
+  });
+
+  it('only deletes records owned by the user', async () => {
+    await expect(service.remove(7, 3)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+
+    const [[args]] = deleteMany.mock.calls as [[{ where: unknown }]];
+    expect(args.where).toEqual({ delivery_number: 3, userid: 7 });
   });
 });

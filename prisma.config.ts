@@ -5,7 +5,6 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
-    seed: 'tsx prisma/seed.ts',
   },
   datasource: {
     // Optional here so `prisma generate` (postinstall) works in CI/build
