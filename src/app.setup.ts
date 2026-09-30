@@ -12,7 +12,7 @@ export function configureApp(app: INestApplication): void {
       .getOrThrow<string>('CORS_ORIGIN')
       .split(',')
       .map((origin) => origin.trim()),
-    methods: ['GET', 'POST', 'PUT'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
   app.useGlobalPipes(

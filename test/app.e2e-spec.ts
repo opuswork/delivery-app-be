@@ -113,23 +113,27 @@ describe('Voice Delivery API (e2e)', () => {
 
   describe('/deliveries', () => {
     const record = {
-      company_name: '하나마트',
-      product_name: '1급진간장1.8L',
-      product_quantity: '4통',
       delivery_date: '2026-09-29',
+      memo: '하나마트 1급진간장1.8L 4통',
     };
+    const api = () => request(app.getHttpServer());
+    const month = async (m: string) =>
+      (
+        await api()
+          .get(`/deliveries?month=${m}`)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .expect(200)
+      ).body as (typeof record & { delivery_number: number })[];
 
     it('requires a token', async () => {
-      await request(app.getHttpServer())
-        .get('/deliveries?month=2026-09')
-        .expect(401);
+      await api().get('/deliveries?month=2026-09').expect(401);
     });
 
     it('creates a record for the authenticated user', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await api()
         .post('/deliveries')
         .set('Authorization', `Bearer ${tokenA}`)
-        .send(record)
+        .send({ ...record, memo: `  ${record.memo}  ` })
         .expect(201);
       expect(res.body).toMatchObject(record);
       expect(
@@ -140,12 +144,14 @@ describe('Voice Delivery API (e2e)', () => {
     const invalidBodies: [string, Record<string, unknown>][] = [
       ['impossible date', { ...record, delivery_date: '2026-02-30' }],
       ['unparsed date', { ...record, delivery_date: '29일' }],
-      ['empty company', { ...record, company_name: '' }],
+      ['empty memo', { ...record, memo: '   ' }],
+      ['too long memo', { ...record, memo: 'x'.repeat(1001) }],
       ['client-supplied userid', { ...record, userid: 1 }],
+      ['old company field', { ...record, company_name: '하나마트' }],
     ];
 
     it.each(invalidBodies)('rejects %s with 400', async (_label, body) => {
-      await request(app.getHttpServer())
+      await api()
         .post('/deliveries')
         .set('Authorization', `Bearer ${tokenA}`)
         .send(body)
@@ -153,138 +159,26 @@ describe('Voice Delivery API (e2e)', () => {
     });
 
     it('lists the month for the owner only', async () => {
-      const own = await request(app.getHttpServer())
-        .get('/deliveries?month=2026-09')
-        .set('Authorization', `Bearer ${tokenA}`)
-        .expect(200);
-      expect(own.body).toEqual([expect.objectContaining(record)]);
+      expect(await month('2026-09')).toEqual([expect.objectContaining(record)]);
 
-      const other = await request(app.getHttpServer())
+      const other = await api()
         .get('/deliveries?month=2026-09')
         .set('Authorization', `Bearer ${tokenB}`)
         .expect(200);
       expect(other.body).toEqual([]);
 
-      const nextMonth = await request(app.getHttpServer())
-        .get('/deliveries?month=2026-10')
-        .set('Authorization', `Bearer ${tokenA}`)
-        .expect(200);
-      expect(nextMonth.body).toEqual([]);
+      expect(await month('2026-10')).toEqual([]);
     });
 
-    describe('POST /deliveries/batch', () => {
-      const batch = {
-        company_name: '신선유통',
-        delivery_date: '2026-11-03',
-        items: [
-          { product_name: '깔끔한국간장', product_quantity: '3통' },
-          { product_name: '생명물간장', product_quantity: '2박스' },
-        ],
-      };
-      const november = () =>
-        request(app.getHttpServer())
-          .get('/deliveries?month=2026-11')
-          .set('Authorization', `Bearer ${tokenA}`);
-
-      it.each([
-        ['empty items', { ...batch, items: [] }],
-        ['11 items', { ...batch, items: Array(11).fill(batch.items[0]) }],
-        [
-          'an item without quantity',
-          {
-            ...batch,
-            items: [
-              batch.items[0],
-              { product_name: '생명물간장', product_quantity: '' },
-            ],
-          },
-        ],
-        [
-          'userid inside an item',
-          { ...batch, items: [{ ...batch.items[0], userid: 1 }] },
-        ],
-        ['impossible date', { ...batch, delivery_date: '2026-11-31' }],
-      ] as [string, object][])(
-        'rejects %s with 400 and saves nothing',
-        async (_label, body) => {
-          await request(app.getHttpServer())
-            .post('/deliveries/batch')
-            .set('Authorization', `Bearer ${tokenA}`)
-            .send(body)
-            .expect(400);
-          expect((await november().expect(200)).body).toEqual([]);
-        },
-      );
-
-      it('saves one record per item with the shared company and date', async () => {
-        const res = await request(app.getHttpServer())
-          .post('/deliveries/batch')
-          .set('Authorization', `Bearer ${tokenA}`)
-          .send(batch)
-          .expect(201);
-        expect(res.body).toEqual([
-          expect.objectContaining({
-            company_name: '신선유통',
-            product_name: '깔끔한국간장',
-            product_quantity: '3통',
-            delivery_date: '2026-11-03',
-          }),
-          expect.objectContaining({
-            company_name: '신선유통',
-            product_name: '생명물간장',
-            product_quantity: '2박스',
-            delivery_date: '2026-11-03',
-          }),
-        ]);
-        expect((await november().expect(200)).body).toHaveLength(2);
-      });
-
-      it('requires a token', async () => {
-        await request(app.getHttpServer())
-          .post('/deliveries/batch')
-          .send(batch)
-          .expect(401);
-      });
-    });
-
-    describe('PUT /deliveries/group', () => {
-      interface Rec {
-        delivery_number: number;
-        company_name: string;
-        product_name: string;
-        product_quantity: string;
-        delivery_date: string;
-      }
-      const put = (token: string, body: object) =>
-        request(app.getHttpServer())
-          .put('/deliveries/group')
-          .set('Authorization', `Bearer ${token}`)
-          .send(body);
-      const month = async (m: string) =>
+    describe('PUT and DELETE /deliveries/:id', () => {
+      const create = async () =>
         (
-          await request(app.getHttpServer())
-            .get(`/deliveries?month=${m}`)
+          await api()
+            .post('/deliveries')
             .set('Authorization', `Bearer ${tokenA}`)
-            .expect(200)
-        ).body as Rec[];
-      const createGroup = async () =>
-        (
-          await request(app.getHttpServer())
-            .post('/deliveries/batch')
-            .set('Authorization', `Bearer ${tokenA}`)
-            .send({
-              company_name: '신선유통',
-              delivery_date: '2026-12-07',
-              items: [
-                {
-                  product_name: '깔끔한 국간장 120ml',
-                  product_quantity: '10개',
-                },
-                { product_name: '생명물관장 120ml', product_quantity: '5개' },
-              ],
-            })
+            .send({ delivery_date: '2026-12-07', memo: '신선유통 국간장 3통' })
             .expect(201)
-        ).body as Rec[];
+        ).body as { delivery_number: number };
 
       afterEach(async () => {
         await prisma.deliveryRecord.deleteMany({
@@ -292,147 +186,67 @@ describe('Voice Delivery API (e2e)', () => {
         });
       });
 
-      it('updates, adds and deletes rows in one step', async () => {
-        const [first, second] = await createGroup();
-        const res = await put(tokenA, {
-          delivery_numbers: [first.delivery_number, second.delivery_number],
-          company_name: '신선유통상사',
-          delivery_date: '2026-12-08',
-          items: [
-            {
-              delivery_number: first.delivery_number,
-              product_name: '깔끔한 국간장 120ml',
-              product_quantity: '12개',
-            },
-            { product_name: '양조간장 500ml', product_quantity: '3박스' },
-          ],
-        }).expect(200);
-
-        const saved = res.body as Rec[];
-        expect(saved).toHaveLength(2);
-        expect(saved[0]).toMatchObject({
-          delivery_number: first.delivery_number,
-          product_quantity: '12개',
-        });
-        const december = await month('2026-12');
-        expect(december).toHaveLength(2);
-        expect(
-          december.every(
-            (r) =>
-              r.company_name === '신선유통상사' &&
-              r.delivery_date === '2026-12-08',
-          ),
-        ).toBe(true);
-        expect(december.map((r) => r.delivery_number)).not.toContain(
-          second.delivery_number,
-        );
-      });
-
-      it('moves the block to another month', async () => {
-        const rows = await createGroup();
-        await put(tokenA, {
-          delivery_numbers: rows.map((r) => r.delivery_number),
-          company_name: '신선유통',
+      it('updates the date and memo', async () => {
+        const { delivery_number } = await create();
+        const res = await api()
+          .put(`/deliveries/${delivery_number}`)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ delivery_date: '2027-01-05', memo: '신선유통 국간장 5통' })
+          .expect(200);
+        expect(res.body).toEqual({
+          delivery_number,
           delivery_date: '2027-01-05',
-          items: rows.map(
-            ({ delivery_number, product_name, product_quantity }) => ({
-              delivery_number,
-              product_name,
-              product_quantity,
-            }),
-          ),
-        }).expect(200);
+          memo: '신선유통 국간장 5통',
+        });
         expect(await month('2026-12')).toEqual([]);
-        expect(await month('2027-01')).toHaveLength(2);
+        expect(await month('2027-01')).toHaveLength(1);
       });
 
-      it('deletes the whole block when items is empty', async () => {
-        const rows = await createGroup();
-        await put(tokenA, {
-          delivery_numbers: rows.map((r) => r.delivery_number),
-          company_name: '신선유통',
-          delivery_date: '2026-12-07',
-          items: [],
-        }).expect(200);
+      it('deletes the record', async () => {
+        const { delivery_number } = await create();
+        await api()
+          .delete(`/deliveries/${delivery_number}`)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .expect(204);
         expect(await month('2026-12')).toEqual([]);
       });
 
-      it("rejects another user's rows with 404 and changes nothing", async () => {
-        const rows = await createGroup();
-        await put(tokenB, {
-          delivery_numbers: rows.map((r) => r.delivery_number),
-          company_name: 'hacked',
-          delivery_date: '2026-12-07',
-          items: [],
-        }).expect(404);
-        expect(await month('2026-12')).toHaveLength(2);
+      it("rejects another user's record with 404 and changes nothing", async () => {
+        const { delivery_number } = await create();
+        await api()
+          .put(`/deliveries/${delivery_number}`)
+          .set('Authorization', `Bearer ${tokenB}`)
+          .send({ delivery_date: '2026-12-07', memo: 'hacked' })
+          .expect(404);
+        await api()
+          .delete(`/deliveries/${delivery_number}`)
+          .set('Authorization', `Bearer ${tokenB}`)
+          .expect(404);
+        expect(await month('2026-12')).toEqual([
+          expect.objectContaining({ memo: '신선유통 국간장 3통' }),
+        ]);
       });
 
-      it.each([
-        [
-          'an item id outside the group',
-          (ids: number[]) => ({
-            items: [
-              {
-                delivery_number: 999999,
-                product_name: 'x',
-                product_quantity: '1개',
-              },
-            ],
-            delivery_numbers: ids,
-          }),
-        ],
-        [
-          'an empty quantity',
-          (ids: number[]) => ({
-            items: [
-              {
-                delivery_number: ids[0],
-                product_name: 'x',
-                product_quantity: '',
-              },
-            ],
-            delivery_numbers: ids,
-          }),
-        ],
-        [
-          'an impossible date',
-          (ids: number[]) => ({
-            items: [],
-            delivery_numbers: ids,
-            delivery_date: '2026-02-30',
-          }),
-        ],
-        ['no delivery_numbers', () => ({ items: [], delivery_numbers: [] })],
-      ] as [string, (ids: number[]) => object][])(
-        'rejects %s with 400 and changes nothing',
-        async (_label, build) => {
-          const rows = await createGroup();
-          const ids = rows.map((r) => r.delivery_number);
-          await put(tokenA, {
-            company_name: '신선유통',
-            delivery_date: '2026-12-07',
-            ...build(ids),
-          }).expect(400);
-          const december = await month('2026-12');
-          expect(december.map((r) => r.product_quantity).sort()).toEqual([
-            '10개',
-            '5개',
-          ]);
-        },
-      );
+      it('rejects a non-numeric id with 400', async () => {
+        await api()
+          .delete('/deliveries/abc')
+          .set('Authorization', `Bearer ${tokenA}`)
+          .expect(400);
+      });
 
-      it('allows PUT from the frontend origin (CORS)', async () => {
-        const res = await request(app.getHttpServer())
-          .options('/deliveries/group')
-          .set('Origin', 'http://localhost:3100')
-          .set('Access-Control-Request-Method', 'PUT');
-        expect(res.headers['access-control-allow-methods']).toContain('PUT');
+      it('allows PUT and DELETE from the frontend origin (CORS)', async () => {
+        for (const method of ['PUT', 'DELETE']) {
+          const res = await api()
+            .options('/deliveries/1')
+            .set('Origin', 'http://localhost:3100')
+            .set('Access-Control-Request-Method', method);
+          expect(res.headers['access-control-allow-methods']).toContain(method);
+        }
       });
     });
 
     it('validates the month query', async () => {
-      await request(app.getHttpServer())
+      await api()
         .get('/deliveries?month=2026-9')
         .set('Authorization', `Bearer ${tokenA}`)
         .expect(400);

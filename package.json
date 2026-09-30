@@ -20,8 +20,8 @@
     "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config ./test/jest-e2e.json --runInBand",
     "postinstall": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "prisma db seed",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "import:users": "tsx prisma/import-users.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

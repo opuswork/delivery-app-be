@@ -1,17 +1,13 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateDeliveryBatchDto } from './dto/create-delivery-batch.dto';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
-import { UpdateDeliveryGroupDto } from './dto/update-delivery-group.dto';
 import {
   DELIVERY_RESPONSE_SELECT,
   DeliveryResponseDto,
 } from './dto/delivery-response.dto';
+
+const NOT_FOUND = '배달 기록을 찾을 수 없습니다.';
 
 /**
  * yyyy-mm → [first day, first day of next month) as yyyy-mm-dd strings.
@@ -42,94 +38,35 @@ export class DeliveryService {
   create(userId: number, dto: CreateDeliveryDto): Promise<DeliveryResponseDto> {
     return this.prisma.deliveryRecord.create({
       data: {
-        company_name: dto.company_name,
-        product_name: dto.product_name,
-        product_quantity: dto.product_quantity,
         delivery_date: dto.delivery_date,
+        memo: dto.memo,
         userid: userId,
       },
       select: DELIVERY_RESPONSE_SELECT,
     });
   }
 
-  /** Saves every item as its own record, all-or-nothing. */
-  createBatch(
+  /** Other users' records look the same as missing ones (404). */
+  async update(
     userId: number,
-    dto: CreateDeliveryBatchDto,
-  ): Promise<DeliveryResponseDto[]> {
-    return this.prisma.$transaction(
-      dto.items.map((item) =>
-        this.prisma.deliveryRecord.create({
-          data: {
-            company_name: dto.company_name,
-            product_name: item.product_name,
-            product_quantity: item.product_quantity,
-            delivery_date: dto.delivery_date,
-            userid: userId,
-          },
-          select: DELIVERY_RESPONSE_SELECT,
-        }),
-      ),
-    );
+    deliveryNumber: number,
+    dto: CreateDeliveryDto,
+  ): Promise<DeliveryResponseDto> {
+    const { count } = await this.prisma.deliveryRecord.updateMany({
+      where: { delivery_number: deliveryNumber, userid: userId },
+      data: { delivery_date: dto.delivery_date, memo: dto.memo },
+    });
+    if (count === 0) throw new NotFoundException(NOT_FOUND);
+    return this.prisma.deliveryRecord.findUniqueOrThrow({
+      where: { delivery_number: deliveryNumber },
+      select: DELIVERY_RESPONSE_SELECT,
+    });
   }
 
-  /**
-   * Edits one company block all-or-nothing: updates listed rows, creates
-   * new items, deletes rows left out. Every row must belong to the user.
-   */
-  updateGroup(
-    userId: number,
-    dto: UpdateDeliveryGroupDto,
-  ): Promise<DeliveryResponseDto[]> {
-    const groupIds = new Set(dto.delivery_numbers);
-    const keptIds = dto.items.flatMap((item) => item.delivery_number ?? []);
-    if (
-      keptIds.some((id) => !groupIds.has(id)) ||
-      new Set(keptIds).size !== keptIds.length
-    ) {
-      throw new BadRequestException(
-        'items may only reference delivery_numbers of the group, once each',
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const owned = await tx.deliveryRecord.count({
-        where: { userid: userId, delivery_number: { in: [...groupIds] } },
-      });
-      if (owned !== groupIds.size) {
-        throw new NotFoundException('배달 기록을 찾을 수 없습니다.');
-      }
-
-      const kept = new Set(keptIds);
-      await tx.deliveryRecord.deleteMany({
-        where: {
-          userid: userId,
-          delivery_number: { in: [...groupIds].filter((id) => !kept.has(id)) },
-        },
-      });
-
-      const results: DeliveryResponseDto[] = [];
-      for (const item of dto.items) {
-        const data = {
-          company_name: dto.company_name,
-          product_name: item.product_name,
-          product_quantity: item.product_quantity,
-          delivery_date: dto.delivery_date,
-        };
-        results.push(
-          item.delivery_number
-            ? await tx.deliveryRecord.update({
-                where: { delivery_number: item.delivery_number },
-                data,
-                select: DELIVERY_RESPONSE_SELECT,
-              })
-            : await tx.deliveryRecord.create({
-                data: { ...data, userid: userId },
-                select: DELIVERY_RESPONSE_SELECT,
-              }),
-        );
-      }
-      return results;
+  async remove(userId: number, deliveryNumber: number): Promise<void> {
+    const { count } = await this.prisma.deliveryRecord.deleteMany({
+      where: { delivery_number: deliveryNumber, userid: userId },
     });
+    if (count === 0) throw new NotFoundException(NOT_FOUND);
   }
 }
