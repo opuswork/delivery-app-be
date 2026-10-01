@@ -39,6 +39,7 @@ export class DeliveryService {
     return this.prisma.deliveryRecord.create({
       data: {
         delivery_date: dto.delivery_date,
+        company_name: dto.company_name,
         memo: dto.memo,
         userid: userId,
       },
@@ -54,7 +55,11 @@ export class DeliveryService {
   ): Promise<DeliveryResponseDto> {
     const { count } = await this.prisma.deliveryRecord.updateMany({
       where: { delivery_number: deliveryNumber, userid: userId },
-      data: { delivery_date: dto.delivery_date, memo: dto.memo },
+      data: {
+        delivery_date: dto.delivery_date,
+        company_name: dto.company_name,
+        memo: dto.memo,
+      },
     });
     if (count === 0) throw new NotFoundException(NOT_FOUND);
     return this.prisma.deliveryRecord.findUniqueOrThrow({

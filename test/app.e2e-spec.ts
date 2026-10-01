@@ -114,7 +114,8 @@ describe('Voice Delivery API (e2e)', () => {
   describe('/deliveries', () => {
     const record = {
       delivery_date: '2026-09-29',
-      memo: '하나마트 1급진간장1.8L 4통',
+      company_name: '하나마트',
+      memo: '1급진간장1.8L 4통',
     };
     const api = () => request(app.getHttpServer());
     const month = async (m: string) =>
@@ -133,7 +134,7 @@ describe('Voice Delivery API (e2e)', () => {
       const res = await api()
         .post('/deliveries')
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ ...record, memo: `  ${record.memo}  ` })
+        .send({ ...record, company_name: ` ${record.company_name} ` })
         .expect(201);
       expect(res.body).toMatchObject(record);
       expect(
@@ -144,10 +145,11 @@ describe('Voice Delivery API (e2e)', () => {
     const invalidBodies: [string, Record<string, unknown>][] = [
       ['impossible date', { ...record, delivery_date: '2026-02-30' }],
       ['unparsed date', { ...record, delivery_date: '29일' }],
-      ['empty memo', { ...record, memo: '   ' }],
+      ['empty company', { ...record, company_name: '   ' }],
+      ['missing company', { delivery_date: record.delivery_date, memo: 'x' }],
       ['too long memo', { ...record, memo: 'x'.repeat(1001) }],
       ['client-supplied userid', { ...record, userid: 1 }],
-      ['old company field', { ...record, company_name: '하나마트' }],
+      ['unknown field', { ...record, product_name: '간장' }],
     ];
 
     it.each(invalidBodies)('rejects %s with 400', async (_label, body) => {
@@ -156,6 +158,18 @@ describe('Voice Delivery API (e2e)', () => {
         .set('Authorization', `Bearer ${tokenA}`)
         .send(body)
         .expect(400);
+    });
+
+    it('accepts a delivery without a memo', async () => {
+      const res = await api()
+        .post('/deliveries')
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ delivery_date: '2026-11-02', company_name: '우리식당' })
+        .expect(201);
+      expect(res.body).toMatchObject({ company_name: '우리식당', memo: '' });
+      await prisma.deliveryRecord.deleteMany({
+        where: { delivery_date: '2026-11-02' },
+      });
     });
 
     it('lists the month for the owner only', async () => {
@@ -176,7 +190,11 @@ describe('Voice Delivery API (e2e)', () => {
           await api()
             .post('/deliveries')
             .set('Authorization', `Bearer ${tokenA}`)
-            .send({ delivery_date: '2026-12-07', memo: '신선유통 국간장 3통' })
+            .send({
+              delivery_date: '2026-12-07',
+              company_name: '신선유통',
+              memo: '국간장 3통',
+            })
             .expect(201)
         ).body as { delivery_number: number };
 
@@ -191,12 +209,17 @@ describe('Voice Delivery API (e2e)', () => {
         const res = await api()
           .put(`/deliveries/${delivery_number}`)
           .set('Authorization', `Bearer ${tokenA}`)
-          .send({ delivery_date: '2027-01-05', memo: '신선유통 국간장 5통' })
+          .send({
+            delivery_date: '2027-01-05',
+            company_name: '신선유통상사',
+            memo: '국간장 5통',
+          })
           .expect(200);
         expect(res.body).toEqual({
           delivery_number,
           delivery_date: '2027-01-05',
-          memo: '신선유통 국간장 5통',
+          company_name: '신선유통상사',
+          memo: '국간장 5통',
         });
         expect(await month('2026-12')).toEqual([]);
         expect(await month('2027-01')).toHaveLength(1);
@@ -216,14 +239,18 @@ describe('Voice Delivery API (e2e)', () => {
         await api()
           .put(`/deliveries/${delivery_number}`)
           .set('Authorization', `Bearer ${tokenB}`)
-          .send({ delivery_date: '2026-12-07', memo: 'hacked' })
+          .send({
+            delivery_date: '2026-12-07',
+            company_name: 'hacked',
+            memo: '',
+          })
           .expect(404);
         await api()
           .delete(`/deliveries/${delivery_number}`)
           .set('Authorization', `Bearer ${tokenB}`)
           .expect(404);
         expect(await month('2026-12')).toEqual([
-          expect.objectContaining({ memo: '신선유통 국간장 3통' }),
+          expect.objectContaining({ company_name: '신선유통' }),
         ]);
       });
 
