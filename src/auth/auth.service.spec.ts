@@ -32,7 +32,7 @@ describe('AuthService', () => {
   });
 
   it('returns a token and the public user on valid credentials', async () => {
-    findByLoginId.mockResolvedValue(user);
+    findByLoginId.mockResolvedValue([user]);
 
     const result = await service.login({
       loginId: '1234',
@@ -51,7 +51,7 @@ describe('AuthService', () => {
   });
 
   it('rejects a wrong password with the generic message', async () => {
-    findByLoginId.mockResolvedValue(user);
+    findByLoginId.mockResolvedValue([user]);
 
     await expect(
       service.login({ loginId: '1234', password: '87654321' }),
@@ -60,10 +60,28 @@ describe('AuthService', () => {
   });
 
   it('rejects an unknown login ID with the same generic message', async () => {
-    findByLoginId.mockResolvedValue(null);
+    findByLoginId.mockResolvedValue([]);
 
     await expect(
       service.login({ loginId: '9999', password: '12345678' }),
     ).rejects.toThrow(new UnauthorizedException(INVALID_CREDENTIALS));
+  });
+
+  it('picks the user whose password matches when the login ID is shared', async () => {
+    const other: User = {
+      ...user,
+      id: 2,
+      password: bcrypt.hashSync('12349999', 4),
+      fullName: '김철수',
+    };
+    findByLoginId.mockResolvedValue([user, other]);
+
+    const result = await service.login({
+      loginId: '1234',
+      password: '12349999',
+    });
+
+    expect(signAsync).toHaveBeenCalledWith({ sub: 2, loginId: '1234' });
+    expect(result.user.fullName).toBe('김철수');
   });
 });

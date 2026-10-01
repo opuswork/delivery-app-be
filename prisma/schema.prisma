@@ -15,7 +15,9 @@ datasource db {
 model User {
   id         Int              @id @default(autoincrement())
   /// Middle 4 digits of the phone number. CHECK: ^[0-9]{4}$
-  loginId    String           @unique @db.Char(4)
+  /// Not unique: people can share it; the password (which ends in the
+  /// phone's last 4 digits) tells them apart.
+  loginId    String           @db.Char(4)
   /// bcrypt hash of the 8-digit numeric password (never plaintext).
   password   String
   fullName   String           @db.VarChar(50)
@@ -24,6 +26,7 @@ model User {
   updatedAt  DateTime         @updatedAt
   deliveries DeliveryRecord[]
 
+  @@index([loginId])
   @@map("users")
 }
 
