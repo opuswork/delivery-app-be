@@ -7,8 +7,12 @@ import { PrismaService } from '../prisma/prisma.service';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findByLoginId(loginId: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { loginId } });
+  /** Several people can share a login ID; their passwords differ. */
+  findByLoginId(loginId: string): Promise<User[]> {
+    return this.prisma.user.findMany({
+      where: { loginId },
+      orderBy: { id: 'asc' },
+    });
   }
 
   findById(id: number): Promise<User | null> {

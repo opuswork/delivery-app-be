@@ -30,12 +30,18 @@ export class AuthService {
   ) {}
 
   async login({ loginId, password }: LoginDto): Promise<LoginResult> {
-    const user = await this.usersService.findByLoginId(loginId);
-    const passwordMatches = await bcrypt.compare(
-      password,
-      user?.password ?? DUMMY_HASH,
-    );
-    if (!user || !passwordMatches) {
+    const candidates = await this.usersService.findByLoginId(loginId);
+    let user: (typeof candidates)[number] | undefined;
+    if (candidates.length === 0) {
+      await bcrypt.compare(password, DUMMY_HASH);
+    }
+    for (const candidate of candidates) {
+      if (await bcrypt.compare(password, candidate.password)) {
+        user = candidate;
+        break;
+      }
+    }
+    if (!user) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 

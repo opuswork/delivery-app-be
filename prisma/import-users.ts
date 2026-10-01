@@ -2,10 +2,12 @@
  * Imports users from a tab-separated file:
  *   loginId <TAB> password <TAB> fullName <TAB> churchName
  *
- * - Users whose loginId already exists in the database are skipped.
- * - loginIds that appear more than once in the file (different people
- *   sharing the middle 4 phone digits) are NOT imported; they are written to
- *   <file>.conflicts.tsv for a manual decision.
+ * - People may share a loginId (the middle 4 phone digits); the password
+ *   (which ends in the last 4 digits) tells them apart.
+ * - A row is skipped when a user with the same loginId and password is
+ *   already in the database.
+ * - Two rows with the same loginId AND password cannot be told apart at login,
+ *   so the file is rejected.
  * - Passwords are stored as bcrypt hashes only.
  *
  * The data file contains personal data: keep it in be/data/ (git-ignored).
@@ -15,7 +17,7 @@
  */
 import 'dotenv/config';
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcryptjs';
@@ -53,6 +55,16 @@ function parseFile(path: string): Row[] {
         problems.push(`line ${line}: churchName`);
       else rows.push({ line, loginId, password, fullName, churchName });
     });
+  const seen = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${row.loginId}\t${row.password}`;
+    const first = seen.get(key);
+    if (first !== undefined)
+      problems.push(
+        `line ${row.line}: same loginId and password as line ${first}`,
+      );
+    else seen.set(key, row.line);
+  }
   if (problems.length > 0) {
     throw new Error(`Invalid rows (nothing imported):\n${problems.join('\n')}`);
   }
@@ -67,58 +79,41 @@ async function main() {
   if (!url) throw new Error('DATABASE_URL is not set');
 
   const rows = parseFile(path);
-  const byId = new Map<string, Row[]>();
-  for (const row of rows)
-    byId.set(row.loginId, [...(byId.get(row.loginId) ?? []), row]);
-  const conflicts = [...byId.values()]
-    .filter((group) => group.length > 1)
-    .flat();
-  const unique = [...byId.values()]
-    .filter((group) => group.length === 1)
-    .flat();
 
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: url }),
   });
   try {
-    const existing = new Set(
-      (
-        await prisma.user.findMany({
-          where: { loginId: { in: [...byId.keys()] } },
-          select: { loginId: true },
-        })
-      ).map((user) => user.loginId),
-    );
-    const toInsert = unique.filter((row) => !existing.has(row.loginId));
-    const skipped = unique.filter((row) => existing.has(row.loginId));
+    const hashesById = new Map<string, string[]>();
+    for (const user of await prisma.user.findMany({
+      where: { loginId: { in: [...new Set(rows.map((r) => r.loginId))] } },
+      select: { loginId: true, password: true },
+    }))
+      hashesById.set(user.loginId, [
+        ...(hashesById.get(user.loginId) ?? []),
+        user.password,
+      ]);
+
+    const toInsert: Row[] = [];
+    const skipped: Row[] = [];
+    for (const row of rows) {
+      let exists = false;
+      for (const hash of hashesById.get(row.loginId) ?? [])
+        if (await bcrypt.compare(row.password, hash)) {
+          exists = true;
+          break;
+        }
+      (exists ? skipped : toInsert).push(row);
+    }
 
     console.log(`Database: ${new URL(url).host}`);
     console.log(`Rows in file:                 ${rows.length}`);
     console.log(`Already in database (skipped): ${skipped.length}`);
-    skipped.forEach((r) =>
-      console.log(`  - ${r.loginId} ${r.fullName} (${r.churchName})`),
-    );
-    console.log(`Shared loginIds (held back):   ${conflicts.length} rows`);
     console.log(`To insert:                     ${toInsert.length}`);
+    toInsert.forEach((r) =>
+      console.log(`  + ${r.loginId} ${r.fullName} (${r.churchName})`),
+    );
 
-    if (conflicts.length > 0) {
-      const report = `${path}.conflicts.tsv`;
-      writeFileSync(
-        report,
-        conflicts
-          .map((r) =>
-            [
-              r.loginId,
-              r.password,
-              r.fullName,
-              r.churchName,
-              `line ${r.line}`,
-            ].join('\t'),
-          )
-          .join('\n') + '\n',
-      );
-      console.log(`Conflicts written to ${report}`);
-    }
     if (dryRun || toInsert.length === 0) {
       console.log(dryRun ? 'Dry run: nothing written.' : 'Nothing to insert.');
       return;
@@ -135,11 +130,7 @@ async function main() {
       if ((index + 1) % 100 === 0)
         console.log(`  hashed ${index + 1}/${toInsert.length}`);
     }
-    // skipDuplicates also covers users created while this script was running.
-    const { count } = await prisma.user.createMany({
-      data,
-      skipDuplicates: true,
-    });
+    const { count } = await prisma.user.createMany({ data });
     console.log(`Inserted: ${count}`);
   } finally {
     await prisma.$disconnect();
