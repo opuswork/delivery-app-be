@@ -115,6 +115,7 @@ describe('Voice Delivery API (e2e)', () => {
     const record = {
       delivery_date: '2026-09-29',
       company_name: '하나마트',
+      delivery_type: '간장',
       memo: '1급진간장1.8L 4통',
     };
     const api = () => request(app.getHttpServer());
@@ -146,7 +147,15 @@ describe('Voice Delivery API (e2e)', () => {
       ['impossible date', { ...record, delivery_date: '2026-02-30' }],
       ['unparsed date', { ...record, delivery_date: '29일' }],
       ['empty company', { ...record, company_name: '   ' }],
-      ['missing company', { delivery_date: record.delivery_date, memo: 'x' }],
+      [
+        'missing company',
+        {
+          delivery_date: record.delivery_date,
+          delivery_type: '간장',
+          memo: 'x',
+        },
+      ],
+      ['unknown delivery type', { ...record, delivery_type: '우유' }],
       ['too long memo', { ...record, memo: 'x'.repeat(1001) }],
       ['client-supplied userid', { ...record, userid: 1 }],
       ['unknown field', { ...record, product_name: '간장' }],
@@ -164,7 +173,11 @@ describe('Voice Delivery API (e2e)', () => {
       const res = await api()
         .post('/deliveries')
         .set('Authorization', `Bearer ${tokenA}`)
-        .send({ delivery_date: '2026-11-02', company_name: '우리식당' })
+        .send({
+          delivery_date: '2026-11-02',
+          company_name: '우리식당',
+          delivery_type: '두부',
+        })
         .expect(201);
       expect(res.body).toMatchObject({ company_name: '우리식당', memo: '' });
       await prisma.deliveryRecord.deleteMany({
@@ -184,6 +197,45 @@ describe('Voice Delivery API (e2e)', () => {
       expect(await month('2026-10')).toEqual([]);
     });
 
+    describe('POST /deliveries/repeat', () => {
+      const repeat = {
+        company_name: '신선유통',
+        delivery_type: '런',
+        memo: '',
+        delivery_dates: ['2027-03-03', '2027-03-10', '2027-03-17'],
+      };
+
+      afterEach(async () => {
+        await prisma.deliveryRecord.deleteMany({
+          where: { delivery_date: { gte: '2027-03-01', lt: '2027-04-01' } },
+        });
+      });
+
+      it('copies the delivery onto each date, skipping ones that have it', async () => {
+        const send = () =>
+          api()
+            .post('/deliveries/repeat')
+            .set('Authorization', `Bearer ${tokenA}`)
+            .send(repeat)
+            .expect(201);
+        expect((await send()).body).toEqual({ created: 3, skipped_dates: [] });
+        expect((await send()).body).toEqual({
+          created: 0,
+          skipped_dates: repeat.delivery_dates,
+        });
+        expect(await month('2027-03')).toHaveLength(3);
+      });
+
+      it('rejects an impossible date and saves nothing', async () => {
+        await api()
+          .post('/deliveries/repeat')
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({ ...repeat, delivery_dates: ['2027-03-03', '2027-02-30'] })
+          .expect(400);
+        expect(await month('2027-03')).toEqual([]);
+      });
+    });
+
     describe('PUT and DELETE /deliveries/:id', () => {
       const create = async () =>
         (
@@ -193,6 +245,7 @@ describe('Voice Delivery API (e2e)', () => {
             .send({
               delivery_date: '2026-12-07',
               company_name: '신선유통',
+              delivery_type: '런',
               memo: '국간장 3통',
             })
             .expect(201)
@@ -212,6 +265,7 @@ describe('Voice Delivery API (e2e)', () => {
           .send({
             delivery_date: '2027-01-05',
             company_name: '신선유통상사',
+            delivery_type: '간장',
             memo: '국간장 5통',
           })
           .expect(200);
@@ -219,6 +273,7 @@ describe('Voice Delivery API (e2e)', () => {
           delivery_number,
           delivery_date: '2027-01-05',
           company_name: '신선유통상사',
+          delivery_type: '간장',
           memo: '국간장 5통',
         });
         expect(await month('2026-12')).toEqual([]);
@@ -242,6 +297,7 @@ describe('Voice Delivery API (e2e)', () => {
           .send({
             delivery_date: '2026-12-07',
             company_name: 'hacked',
+            delivery_type: '런',
             memo: '',
           })
           .expect(404);

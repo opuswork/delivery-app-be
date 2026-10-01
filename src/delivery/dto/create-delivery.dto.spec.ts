@@ -9,7 +9,11 @@ const parse = (body: object) => {
 };
 
 describe('CreateDeliveryDto', () => {
-  const base = { delivery_date: '2026-10-07', company_name: ' 홈플러스 ' };
+  const base = {
+    delivery_date: '2026-10-07',
+    company_name: ' 홈플러스 ',
+    delivery_type: '두부',
+  };
 
   it.each([
     ['omitted', {}],
@@ -24,5 +28,13 @@ describe('CreateDeliveryDto', () => {
 
   it('requires 납품처', () => {
     expect(parse({ ...base, company_name: '  ' }).errors).toHaveLength(1);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['unknown', '우유'],
+  ])('rejects a %s 납품종류', (_label, delivery_type) => {
+    const { errors } = parse({ ...base, delivery_type });
+    expect(errors.map((e) => e.property)).toEqual(['delivery_type']);
   });
 });
