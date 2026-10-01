@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  BulkUpdateDeliveryDto,
+  BulkUpdateDeliveryResponseDto,
+} from './dto/bulk-delivery.dto';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import {
   DELIVERY_RESPONSE_SELECT,
@@ -132,6 +136,42 @@ export class DeliveryService {
       created: count,
       skipped_dates: dates.filter((date) => taken.has(date)),
     };
+  }
+
+  /**
+   * The user's deliveries to the same 납품처 as `deliveryNumber` (every date),
+   * the candidates for 선택수정. 404 when the record is not the user's.
+   */
+  async listSameCompany(
+    userId: number,
+    deliveryNumber: number,
+  ): Promise<DeliveryResponseDto[]> {
+    const source = await this.prisma.deliveryRecord.findFirst({
+      where: { delivery_number: deliveryNumber, userid: userId },
+      select: { company_name: true },
+    });
+    if (!source) throw new NotFoundException(NOT_FOUND);
+    return this.prisma.deliveryRecord.findMany({
+      where: { userid: userId, company_name: source.company_name },
+      orderBy: [{ delivery_date: 'asc' }, { delivery_number: 'asc' }],
+      select: DELIVERY_RESPONSE_SELECT,
+    });
+  }
+
+  /** 선택수정: writes the same content to several of the user's deliveries. */
+  async bulkUpdate(
+    userId: number,
+    dto: BulkUpdateDeliveryDto,
+  ): Promise<BulkUpdateDeliveryResponseDto> {
+    const { count } = await this.prisma.deliveryRecord.updateMany({
+      where: { userid: userId, delivery_number: { in: dto.delivery_numbers } },
+      data: {
+        company_name: dto.company_name,
+        delivery_type: dto.delivery_type,
+        memo: dto.memo,
+      },
+    });
+    return { updated: count };
   }
 
   async remove(userId: number, deliveryNumber: number): Promise<void> {
