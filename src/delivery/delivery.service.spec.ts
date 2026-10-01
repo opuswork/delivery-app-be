@@ -58,20 +58,26 @@ describe('DeliveryService', () => {
   it('creates the record for the authenticated user', async () => {
     await service.create(7, {
       delivery_date: '2026-10-07',
-      memo: '홈플러스 1급진간장 1.8리터 10통',
+      company_name: '홈플러스',
+      memo: '1급진간장 1.8리터 10통',
     });
 
     const [[args]] = create.mock.calls as [[{ data: Record<string, unknown> }]];
     expect(args.data).toEqual({
       delivery_date: '2026-10-07',
-      memo: '홈플러스 1급진간장 1.8리터 10통',
+      company_name: '홈플러스',
+      memo: '1급진간장 1.8리터 10통',
       userid: 7,
     });
   });
 
   it('only updates records owned by the user', async () => {
     await expect(
-      service.update(7, 3, { delivery_date: '2026-10-07', memo: 'x' }),
+      service.update(7, 3, {
+        delivery_date: '2026-10-07',
+        company_name: '홈플러스',
+        memo: '',
+      }),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const [[args]] = updateMany.mock.calls as [[{ where: unknown }]];
