@@ -20,6 +20,10 @@ import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { DeliveryNumberParam } from './dto/delivery-number.param';
 import type { DeliveryResponseDto } from './dto/delivery-response.dto';
 import { ListDeliveriesQuery } from './dto/list-deliveries.query';
+import {
+  RepeatDeliveryDto,
+  type RepeatDeliveryResponseDto,
+} from './dto/repeat-delivery.dto';
 
 @Controller('deliveries')
 @UseGuards(JwtAuthGuard)
@@ -40,6 +44,15 @@ export class DeliveryController {
     @Body() dto: CreateDeliveryDto,
   ): Promise<DeliveryResponseDto> {
     return this.deliveryService.create(user.id, dto);
+  }
+
+  /** Copies one delivery onto several dates. Declared before `:id` routes. */
+  @Post('repeat')
+  repeat(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RepeatDeliveryDto,
+  ): Promise<RepeatDeliveryResponseDto> {
+    return this.deliveryService.repeat(user.id, dto);
   }
 
   @Put(':id')
