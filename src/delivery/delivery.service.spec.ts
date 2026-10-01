@@ -35,6 +35,7 @@ describe('DeliveryService', () => {
   let updateMany: jest.Mock;
   let deleteMany: jest.Mock;
   let createMany: jest.Mock;
+  let findFirst: jest.Mock;
   let service: DeliveryService;
 
   beforeEach(() => {
@@ -43,6 +44,7 @@ describe('DeliveryService', () => {
     updateMany = jest.fn().mockResolvedValue({ count: 0 });
     deleteMany = jest.fn().mockResolvedValue({ count: 0 });
     createMany = jest.fn().mockResolvedValue({ count: 2 });
+    findFirst = jest.fn().mockResolvedValue(null);
     service = new DeliveryService({
       deliveryRecord: {
         findMany,
@@ -50,6 +52,7 @@ describe('DeliveryService', () => {
         updateMany,
         deleteMany,
         createMany,
+        findFirst,
         findUniqueOrThrow: jest.fn(),
       },
     } as unknown as PrismaService);
@@ -146,6 +149,51 @@ describe('DeliveryService', () => {
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(createMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('선택수정', () => {
+    it('lists the same 납품처 on every date for the owner', async () => {
+      findFirst.mockResolvedValue({ company_name: '공신유통' });
+
+      await service.listSameCompany(7, 3);
+
+      const [[source]] = findFirst.mock.calls as [[{ where: unknown }]];
+      expect(source.where).toEqual({ delivery_number: 3, userid: 7 });
+      const [[args]] = findMany.mock.calls as [[{ where: unknown }]];
+      expect(args.where).toEqual({ userid: 7, company_name: '공신유통' });
+    });
+
+    it('rejects a record of another user with 404', async () => {
+      await expect(service.listSameCompany(7, 3)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    it('updates only the selected records owned by the user', async () => {
+      updateMany.mockResolvedValue({ count: 2 });
+
+      const result = await service.bulkUpdate(7, {
+        delivery_numbers: [3, 5],
+        company_name: '공신유통',
+        delivery_type: '두부',
+        memo: '수벌 30개',
+      });
+
+      const [[args]] = updateMany.mock.calls as [
+        [{ where: unknown; data: unknown }],
+      ];
+      expect(args.where).toEqual({
+        userid: 7,
+        delivery_number: { in: [3, 5] },
+      });
+      expect(args.data).toEqual({
+        company_name: '공신유통',
+        delivery_type: '두부',
+        memo: '수벌 30개',
+      });
+      expect(result).toEqual({ updated: 2 });
     });
   });
 });

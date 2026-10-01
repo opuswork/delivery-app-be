@@ -16,6 +16,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { AuthUser } from '../common/types/auth.types';
 import { DeliveryService } from './delivery.service';
+import {
+  BulkUpdateDeliveryDto,
+  type BulkUpdateDeliveryResponseDto,
+} from './dto/bulk-delivery.dto';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { DeliveryNumberParam } from './dto/delivery-number.param';
 import type { DeliveryResponseDto } from './dto/delivery-response.dto';
@@ -53,6 +57,24 @@ export class DeliveryController {
     @Body() dto: RepeatDeliveryDto,
   ): Promise<RepeatDeliveryResponseDto> {
     return this.deliveryService.repeat(user.id, dto);
+  }
+
+  /** 선택수정. Declared before `:id` so "bulk" is not read as an id. */
+  @Put('bulk')
+  bulkUpdate(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: BulkUpdateDeliveryDto,
+  ): Promise<BulkUpdateDeliveryResponseDto> {
+    return this.deliveryService.bulkUpdate(user.id, dto);
+  }
+
+  /** Deliveries to the same 납품처 on every date (선택수정 candidates). */
+  @Get(':id/same-company')
+  listSameCompany(
+    @CurrentUser() user: AuthUser,
+    @Param() { id }: DeliveryNumberParam,
+  ): Promise<DeliveryResponseDto[]> {
+    return this.deliveryService.listSameCompany(user.id, id);
   }
 
   @Put(':id')

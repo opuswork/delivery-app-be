@@ -236,6 +236,69 @@ describe('Voice Delivery API (e2e)', () => {
       });
     });
 
+    describe('선택수정 (same-company + PUT /deliveries/bulk)', () => {
+      afterEach(async () => {
+        await prisma.deliveryRecord.deleteMany({
+          where: { delivery_date: { gte: '2027-04-01', lt: '2027-05-01' } },
+        });
+      });
+
+      it('lists the same 납품처 and updates only the selected records', async () => {
+        await api()
+          .post('/deliveries/repeat')
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({
+            company_name: '공신유통',
+            delivery_type: '두부',
+            memo: '두부 10모',
+            delivery_dates: ['2027-04-06', '2027-04-13', '2027-04-20'],
+          })
+          .expect(201);
+        const [first, second, third] = await month('2027-04');
+
+        const same = await api()
+          .get(`/deliveries/${first.delivery_number}/same-company`)
+          .set('Authorization', `Bearer ${tokenA}`)
+          .expect(200);
+        expect(same.body).toHaveLength(3);
+        await api()
+          .get(`/deliveries/${first.delivery_number}/same-company`)
+          .set('Authorization', `Bearer ${tokenB}`)
+          .expect(404);
+
+        const res = await api()
+          .put('/deliveries/bulk')
+          .set('Authorization', `Bearer ${tokenA}`)
+          .send({
+            delivery_numbers: [first.delivery_number, third.delivery_number],
+            company_name: '공신유통',
+            delivery_type: '간장',
+            memo: '국간장 2통',
+          })
+          .expect(200);
+        expect(res.body).toEqual({ updated: 2 });
+        expect(
+          (await month('2027-04')).map((r) => [r.delivery_type, r.memo]),
+        ).toEqual([
+          ['간장', '국간장 2통'],
+          ['두부', '두부 10모'],
+          ['간장', '국간장 2통'],
+        ]);
+
+        const other = await api()
+          .put('/deliveries/bulk')
+          .set('Authorization', `Bearer ${tokenB}`)
+          .send({
+            delivery_numbers: [second.delivery_number],
+            company_name: 'hacked',
+            delivery_type: '런',
+            memo: '',
+          })
+          .expect(200);
+        expect(other.body).toEqual({ updated: 0 });
+      });
+    });
+
     describe('PUT and DELETE /deliveries/:id', () => {
       const create = async () =>
         (
