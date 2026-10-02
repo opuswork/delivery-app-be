@@ -115,7 +115,7 @@ describe('Voice Delivery API (e2e)', () => {
     const record = {
       delivery_date: '2026-09-29',
       company_name: '하나마트',
-      delivery_type: '간장',
+      badge_color: '#413742',
       memo: '1급진간장1.8L 4통',
     };
     const api = () => request(app.getHttpServer());
@@ -151,11 +151,11 @@ describe('Voice Delivery API (e2e)', () => {
         'missing company',
         {
           delivery_date: record.delivery_date,
-          delivery_type: '간장',
+          badge_color: '#413742',
           memo: 'x',
         },
       ],
-      ['unknown delivery type', { ...record, delivery_type: '우유' }],
+      ['invalid badge colour', { ...record, badge_color: '빨강' }],
       ['too long memo', { ...record, memo: 'x'.repeat(1001) }],
       ['client-supplied userid', { ...record, userid: 1 }],
       ['unknown field', { ...record, product_name: '간장' }],
@@ -176,7 +176,7 @@ describe('Voice Delivery API (e2e)', () => {
         .send({
           delivery_date: '2026-11-02',
           company_name: '우리식당',
-          delivery_type: '두부',
+          badge_color: '#B41DC4',
         })
         .expect(201);
       expect(res.body).toMatchObject({ company_name: '우리식당', memo: '' });
@@ -200,7 +200,7 @@ describe('Voice Delivery API (e2e)', () => {
     describe('POST /deliveries/repeat', () => {
       const repeat = {
         company_name: '신선유통',
-        delivery_type: '런',
+        badge_color: '#1D84C4',
         memo: '',
         delivery_dates: ['2027-03-03', '2027-03-10', '2027-03-17'],
       };
@@ -249,7 +249,7 @@ describe('Voice Delivery API (e2e)', () => {
           .set('Authorization', `Bearer ${tokenA}`)
           .send({
             company_name: '공신유통',
-            delivery_type: '두부',
+            badge_color: '#B41DC4',
             memo: '두부 10모',
             delivery_dates: ['2027-04-06', '2027-04-13', '2027-04-20'],
           })
@@ -272,17 +272,17 @@ describe('Voice Delivery API (e2e)', () => {
           .send({
             delivery_numbers: [first.delivery_number, third.delivery_number],
             company_name: '공신유통',
-            delivery_type: '간장',
+            badge_color: '#413742',
             memo: '국간장 2통',
           })
           .expect(200);
         expect(res.body).toEqual({ updated: 2 });
         expect(
-          (await month('2027-04')).map((r) => [r.delivery_type, r.memo]),
+          (await month('2027-04')).map((r) => [r.badge_color, r.memo]),
         ).toEqual([
-          ['간장', '국간장 2통'],
-          ['두부', '두부 10모'],
-          ['간장', '국간장 2통'],
+          ['#413742', '국간장 2통'],
+          ['#B41DC4', '두부 10모'],
+          ['#413742', '국간장 2통'],
         ]);
 
         const other = await api()
@@ -291,7 +291,7 @@ describe('Voice Delivery API (e2e)', () => {
           .send({
             delivery_numbers: [second.delivery_number],
             company_name: 'hacked',
-            delivery_type: '런',
+            badge_color: '#1D84C4',
             memo: '',
           })
           .expect(200);
@@ -308,7 +308,7 @@ describe('Voice Delivery API (e2e)', () => {
             .send({
               delivery_date: '2026-12-07',
               company_name: '신선유통',
-              delivery_type: '런',
+              badge_color: '#1D84C4',
               memo: '국간장 3통',
             })
             .expect(201)
@@ -328,7 +328,7 @@ describe('Voice Delivery API (e2e)', () => {
           .send({
             delivery_date: '2027-01-05',
             company_name: '신선유통상사',
-            delivery_type: '간장',
+            badge_color: '#413742',
             memo: '국간장 5통',
           })
           .expect(200);
@@ -336,7 +336,7 @@ describe('Voice Delivery API (e2e)', () => {
           delivery_number,
           delivery_date: '2027-01-05',
           company_name: '신선유통상사',
-          delivery_type: '간장',
+          badge_color: '#413742',
           memo: '국간장 5통',
         });
         expect(await month('2026-12')).toEqual([]);
@@ -360,7 +360,7 @@ describe('Voice Delivery API (e2e)', () => {
           .send({
             delivery_date: '2026-12-07',
             company_name: 'hacked',
-            delivery_type: '런',
+            badge_color: '#1D84C4',
             memo: '',
           })
           .expect(404);

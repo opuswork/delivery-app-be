@@ -9,7 +9,11 @@ import {
   BulkUpdateDeliveryDto,
   BulkUpdateDeliveryResponseDto,
 } from './dto/bulk-delivery.dto';
-import { CreateDeliveryDto } from './dto/create-delivery.dto';
+import {
+  CreateDeliveryDto,
+  DELIVERY_TYPE_COLORS,
+  DeliveryContentDto,
+} from './dto/create-delivery.dto';
 import {
   DELIVERY_RESPONSE_SELECT,
   DeliveryResponseDto,
@@ -46,6 +50,16 @@ export function isRealDateKey(value: string): boolean {
   );
 }
 
+/** The stored content of a delivery; an old client's 납품종류 becomes its colour. */
+function contentOf(dto: DeliveryContentDto) {
+  return {
+    company_name: dto.company_name,
+    badge_color:
+      dto.badge_color || DELIVERY_TYPE_COLORS[dto.delivery_type ?? ''] || '',
+    memo: dto.memo,
+  };
+}
+
 @Injectable()
 export class DeliveryService {
   constructor(private readonly prisma: PrismaService) {}
@@ -62,9 +76,7 @@ export class DeliveryService {
     return this.prisma.deliveryRecord.create({
       data: {
         delivery_date: dto.delivery_date,
-        company_name: dto.company_name,
-        delivery_type: dto.delivery_type,
-        memo: dto.memo,
+        ...contentOf(dto),
         userid: userId,
       },
       select: DELIVERY_RESPONSE_SELECT,
@@ -81,9 +93,7 @@ export class DeliveryService {
       where: { delivery_number: deliveryNumber, userid: userId },
       data: {
         delivery_date: dto.delivery_date,
-        company_name: dto.company_name,
-        delivery_type: dto.delivery_type,
-        memo: dto.memo,
+        ...contentOf(dto),
       },
     });
     if (count === 0) throw new NotFoundException(NOT_FOUND);
@@ -109,9 +119,7 @@ export class DeliveryService {
       );
     }
     const content = {
-      company_name: dto.company_name,
-      delivery_type: dto.delivery_type,
-      memo: dto.memo,
+      ...contentOf(dto),
     };
     const existing = await this.prisma.deliveryRecord.findMany({
       where: {
@@ -166,9 +174,7 @@ export class DeliveryService {
     const { count } = await this.prisma.deliveryRecord.updateMany({
       where: { userid: userId, delivery_number: { in: dto.delivery_numbers } },
       data: {
-        company_name: dto.company_name,
-        delivery_type: dto.delivery_type,
-        memo: dto.memo,
+        ...contentOf(dto),
       },
     });
     return { updated: count };
