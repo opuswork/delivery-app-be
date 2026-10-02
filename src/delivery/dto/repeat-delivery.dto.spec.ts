@@ -7,7 +7,7 @@ const errorsFor = (body: object) =>
   validateSync(plainToInstance(RepeatDeliveryDto, body)).map((e) => e.property);
 
 describe('RepeatDeliveryDto', () => {
-  const base = { company_name: '신선유통', delivery_type: '런' };
+  const base = { company_name: '신선유통', badge_color: '#1D84C4' };
 
   it('accepts a list of dates', () => {
     expect(

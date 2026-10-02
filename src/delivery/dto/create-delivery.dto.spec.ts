@@ -12,7 +12,7 @@ describe('CreateDeliveryDto', () => {
   const base = {
     delivery_date: '2026-10-07',
     company_name: ' 홈플러스 ',
-    delivery_type: '두부',
+    badge_color: '#b41dc4',
   };
 
   it.each([
@@ -30,11 +30,24 @@ describe('CreateDeliveryDto', () => {
     expect(parse({ ...base, company_name: '  ' }).errors).toHaveLength(1);
   });
 
-  it.each([
-    ['missing', undefined],
-    ['unknown', '우유'],
-  ])('rejects a %s 납품종류', (_label, delivery_type) => {
-    const { errors } = parse({ ...base, delivery_type });
-    expect(errors.map((e) => e.property)).toEqual(['delivery_type']);
+  it('stores the colour in upper case', () => {
+    const { dto, errors } = parse(base);
+    expect(errors).toEqual([]);
+    expect(dto.badge_color).toBe('#B41DC4');
+  });
+
+  it('defaults an omitted colour to empty', () => {
+    const { dto, errors } = parse({ ...base, badge_color: undefined });
+    expect(errors).toEqual([]);
+    expect(dto.badge_color).toBe('');
+  });
+
+  it.each(['빨강', '#12345', 'red'])('rejects the colour %s', (badge_color) => {
+    const { errors } = parse({ ...base, badge_color });
+    expect(errors.map((e) => e.property)).toEqual(['badge_color']);
+  });
+
+  it('still accepts a 납품종류 from older clients', () => {
+    expect(parse({ ...base, delivery_type: '간장' }).errors).toEqual([]);
   });
 });

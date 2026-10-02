@@ -36,9 +36,12 @@ model DeliveryRecord {
   delivery_date   String   @db.VarChar(10)
   /// 납품처, e.g. "홈플러스" (empty for rows saved before it was its own field)
   company_name    String   @db.VarChar(100)
-  /// 납품종류: 런 | 두부 | 간장 (empty for rows saved before it existed).
+  /// 납품종류: 런 | 두부 | 간장. No longer set by the app (badge_color replaced it).
   /// CHECK: delivery_type IN ('', '런', '두부', '간장')
   delivery_type   String   @default("") @db.VarChar(10)
+  /// 납품처 badge colour, #RRGGBB, or '' for the default colour.
+  /// CHECK: badge_color ~ '^(#[0-9A-F]{6})?$'
+  badge_color     String   @default("") @db.VarChar(7)
   /// Free text, may be empty, e.g. "1급진간장 1.8리터 10통"
   memo            String   @db.VarChar(1000)
   userid          Int

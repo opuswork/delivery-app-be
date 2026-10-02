@@ -75,7 +75,7 @@ describe('DeliveryService', () => {
     await service.create(7, {
       delivery_date: '2026-10-07',
       company_name: '홈플러스',
-      delivery_type: '간장',
+      badge_color: '#413742',
       memo: '1급진간장 1.8리터 10통',
     });
 
@@ -83,7 +83,7 @@ describe('DeliveryService', () => {
     expect(args.data).toEqual({
       delivery_date: '2026-10-07',
       company_name: '홈플러스',
-      delivery_type: '간장',
+      badge_color: '#413742',
       memo: '1급진간장 1.8리터 10통',
       userid: 7,
     });
@@ -94,7 +94,7 @@ describe('DeliveryService', () => {
       service.update(7, 3, {
         delivery_date: '2026-10-07',
         company_name: '홈플러스',
-        delivery_type: '두부',
+        badge_color: '#B41DC4',
         memo: '',
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -115,7 +115,7 @@ describe('DeliveryService', () => {
   describe('repeat', () => {
     const content = {
       company_name: '신선유통',
-      delivery_type: '런' as const,
+      badge_color: '#1D84C4',
       memo: '',
     };
 
@@ -177,7 +177,7 @@ describe('DeliveryService', () => {
       const result = await service.bulkUpdate(7, {
         delivery_numbers: [3, 5],
         company_name: '공신유통',
-        delivery_type: '두부',
+        badge_color: '#B41DC4',
         memo: '수벌 30개',
       });
 
@@ -190,7 +190,7 @@ describe('DeliveryService', () => {
       });
       expect(args.data).toEqual({
         company_name: '공신유통',
-        delivery_type: '두부',
+        badge_color: '#B41DC4',
         memo: '수벌 30개',
       });
       expect(result).toEqual({ updated: 2 });
