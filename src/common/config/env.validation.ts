@@ -3,9 +3,11 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
+  ValidateIf,
   validateSync,
 } from 'class-validator';
 
@@ -31,6 +33,16 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   CORS_ORIGIN: string = 'http://localhost:3100';
+
+  /**
+   * bcrypt hash of the dashboard password for the "admin" login
+   * (`npm run admin:hash`). Unset or empty: admin login is disabled.
+   */
+  @ValidateIf((env: EnvironmentVariables) => Boolean(env.ADMIN_PASSWORD_HASH))
+  @Matches(/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/, {
+    message: 'ADMIN_PASSWORD_HASH must be a bcrypt hash (npm run admin:hash)',
+  })
+  ADMIN_PASSWORD_HASH?: string;
 }
 
 export type AppEnv = EnvironmentVariables;

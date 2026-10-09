@@ -1,87 +1,97 @@
 import { UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 
 import type { User } from '../generated/prisma/client.js';
 import { UsersService } from '../users/users.service';
-import { AuthService, INVALID_CREDENTIALS } from './auth.service';
+import {
+  AuthService,
+  hashDeviceKey,
+  INVALID_CREDENTIALS,
+} from './auth.service';
 
 describe('AuthService', () => {
-  const passwordHash = bcrypt.hashSync('12345678', 4);
-  const user: User = {
-    id: 1,
-    loginId: '1234',
-    password: passwordHash,
-    fullName: '홍길동',
+  const deviceKey = 'k'.repeat(43);
+  const deviceUser: User = {
+    id: 7,
+    deviceKeyHash: hashDeviceKey(deviceKey),
+    loginId: null,
+    password: null,
+    fullName: '',
     churchName: 'joongang',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
-  let findByLoginId: jest.Mock;
+  let findOrCreateByDeviceKeyHash: jest.Mock;
   let signAsync: jest.Mock;
+  let adminPasswordHash: string | undefined;
   let service: AuthService;
 
   beforeEach(() => {
-    findByLoginId = jest.fn();
+    findOrCreateByDeviceKeyHash = jest.fn().mockResolvedValue(deviceUser);
     signAsync = jest.fn().mockResolvedValue('signed.jwt.token');
+    adminPasswordHash = undefined;
     service = new AuthService(
-      { findByLoginId } as unknown as UsersService,
+      { findOrCreateByDeviceKeyHash } as unknown as UsersService,
       { signAsync } as unknown as JwtService,
+      { get: () => adminPasswordHash } as unknown as ConfigService,
     );
   });
 
-  it('returns a token and the public user on valid credentials', async () => {
-    findByLoginId.mockResolvedValue([user]);
+  describe('authenticateDevice', () => {
+    it("signs a token for the device's account", async () => {
+      const result = await service.authenticateDevice({ deviceKey });
 
-    const result = await service.login({
-      loginId: '1234',
-      password: '12345678',
+      expect(result).toEqual({ accessToken: 'signed.jwt.token' });
+      expect(signAsync).toHaveBeenCalledWith({ sub: 7 });
     });
 
-    expect(signAsync).toHaveBeenCalledWith({ sub: 1, loginId: '1234' });
-    expect(result.accessToken).toBe('signed.jwt.token');
-    expect(result.user).toEqual({
-      id: 1,
-      loginId: '1234',
-      fullName: '홍길동',
-      churchName: 'joongang',
+    it('looks the account up by a SHA-256 of the key, never the key itself', async () => {
+      await service.authenticateDevice({ deviceKey });
+
+      const [hash] = findOrCreateByDeviceKeyHash.mock.calls[0] as [string];
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(hash).not.toContain(deviceKey);
     });
-    expect(result.user).not.toHaveProperty('password');
   });
 
-  it('rejects a wrong password with the generic message', async () => {
-    findByLoginId.mockResolvedValue([user]);
+  describe('adminLogin', () => {
+    const adminPassword = 'dashboard-secret';
 
-    await expect(
-      service.login({ loginId: '1234', password: '87654321' }),
-    ).rejects.toThrow(new UnauthorizedException(INVALID_CREDENTIALS));
-    expect(signAsync).not.toHaveBeenCalled();
-  });
+    it('signs an admin token when ADMIN_PASSWORD_HASH matches', async () => {
+      adminPasswordHash = bcrypt.hashSync(adminPassword, 4);
 
-  it('rejects an unknown login ID with the same generic message', async () => {
-    findByLoginId.mockResolvedValue([]);
+      const result = await service.adminLogin({
+        loginId: 'admin',
+        password: adminPassword,
+      });
 
-    await expect(
-      service.login({ loginId: '9999', password: '12345678' }),
-    ).rejects.toThrow(new UnauthorizedException(INVALID_CREDENTIALS));
-  });
-
-  it('picks the user whose password matches when the login ID is shared', async () => {
-    const other: User = {
-      ...user,
-      id: 2,
-      password: bcrypt.hashSync('12349999', 4),
-      fullName: '김철수',
-    };
-    findByLoginId.mockResolvedValue([user, other]);
-
-    const result = await service.login({
-      loginId: '1234',
-      password: '12349999',
+      expect(signAsync).toHaveBeenCalledWith({
+        sub: 0,
+        role: 'admin',
+      });
+      expect(result).toEqual({ accessToken: 'signed.jwt.token' });
     });
 
-    expect(signAsync).toHaveBeenCalledWith({ sub: 2, loginId: '1234' });
-    expect(result.user.fullName).toBe('김철수');
+    it.each([
+      ['a wrong password', 'admin', 'wrong-password'],
+      ['another login ID', 'root', adminPassword],
+    ])('rejects %s', async (_case, loginId, password) => {
+      adminPasswordHash = bcrypt.hashSync(adminPassword, 4);
+
+      await expect(service.adminLogin({ loginId, password })).rejects.toThrow(
+        new UnauthorizedException(INVALID_CREDENTIALS),
+      );
+      expect(signAsync).not.toHaveBeenCalled();
+    });
+
+    it('is disabled when ADMIN_PASSWORD_HASH is not set', async () => {
+      await expect(
+        service.adminLogin({ loginId: 'admin', password: '00000000' }),
+      ).rejects.toThrow(new UnauthorizedException(INVALID_CREDENTIALS));
+      expect(signAsync).not.toHaveBeenCalled();
+    });
   });
 });

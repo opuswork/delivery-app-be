@@ -7,11 +7,13 @@ import { PrismaService } from '../prisma/prisma.service';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Several people can share a login ID; their passwords differ. */
-  findByLoginId(loginId: string): Promise<User[]> {
-    return this.prisma.user.findMany({
-      where: { loginId },
-      orderBy: { id: 'asc' },
+  /** A device's anonymous account; created the first time the app is opened. */
+  findOrCreateByDeviceKeyHash(deviceKeyHash: string): Promise<User> {
+    // A single INSERT … ON CONFLICT, so two requests at once cannot both create it.
+    return this.prisma.user.upsert({
+      where: { deviceKeyHash },
+      create: { deviceKeyHash },
+      update: {},
     });
   }
 
