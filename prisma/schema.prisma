@@ -12,19 +12,24 @@ datasource db {
   provider = "postgresql"
 }
 
+/// A person using the app. Since the app has no login, each installation is
+/// an anonymous account found by its device key. Members imported before that
+/// keep their name and old login fields (no longer used to sign in).
 model User {
-  id         Int              @id @default(autoincrement())
-  /// Middle 4 digits of the phone number. CHECK: ^[0-9]{4}$
-  /// Not unique: people can share it; the password (which ends in the
-  /// phone's last 4 digits) tells them apart.
-  loginId    String           @db.Char(4)
-  /// bcrypt hash of the 8-digit numeric password (never plaintext).
-  password   String
-  fullName   String           @db.VarChar(50)
-  churchName String           @default("joongang") @db.VarChar(100)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
-  deliveries DeliveryRecord[]
+  id            Int              @id @default(autoincrement())
+  /// SHA-256 (hex) of the random key the app keeps on the device.
+  deviceKeyHash String?          @unique @db.Char(64)
+  /// Old login: middle 4 digits of the phone number. CHECK: ^[0-9]{4}$
+  loginId       String?          @db.Char(4)
+  /// Old login: bcrypt hash of the 8-digit password.
+  password      String?
+  /// Empty for device accounts.
+  fullName      String           @default("") @db.VarChar(50)
+  churchName    String           @default("joongang") @db.VarChar(100)
+  /// For device accounts: when the app was first opened.
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deliveries    DeliveryRecord[]
 
   @@index([loginId])
   @@map("users")

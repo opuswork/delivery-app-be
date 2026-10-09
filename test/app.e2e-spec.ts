@@ -1,8 +1,10 @@
 /**
  * End-to-end tests against the real PostgreSQL database from .env
- * (docker compose). Creates two throwaway users and removes them afterwards.
+ * (docker compose). Creates two throwaway device accounts and removes them afterwards.
  */
 import 'dotenv/config';
+
+import { randomBytes } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -12,14 +14,17 @@ import type { App } from 'supertest/types';
 
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
+import { hashDeviceKey } from '../src/auth/auth.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 
-const USER_A = { loginId: '9871', password: '11112222' };
-const USER_B = { loginId: '9872', password: '33334444' };
+const DEVICE_A = randomBytes(32).toString('base64url');
+const DEVICE_B = randomBytes(32).toString('base64url');
+const ADMIN_PASSWORD = 'e2e-admin-password';
+// Read by ConfigModule when the app boots below.
+process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync(ADMIN_PASSWORD, 4);
 
-interface LoginBody {
+interface TokenBody {
   accessToken: string;
-  user: Record<string, unknown>;
 }
 
 describe('Voice Delivery API (e2e)', () => {
@@ -27,9 +32,12 @@ describe('Voice Delivery API (e2e)', () => {
   let prisma: PrismaService;
   let tokenA: string;
   let tokenB: string;
+  let adminToken: string;
 
-  const login = (body: object) =>
-    request(app.getHttpServer()).post('/auth/login').send(body);
+  const authDevice = (deviceKey: string) =>
+    request(app.getHttpServer()).post('/auth/device').send({ deviceKey });
+  const adminLogin = (body: object) =>
+    request(app.getHttpServer()).post('/auth/admin/login').send(body);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -40,49 +48,50 @@ describe('Voice Delivery API (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
-    const loginIds = [USER_A.loginId, USER_B.loginId];
-    await prisma.user.deleteMany({ where: { loginId: { in: loginIds } } });
-    for (const u of [USER_A, USER_B]) {
-      await prisma.user.create({
-        data: {
-          loginId: u.loginId,
-          password: await bcrypt.hash(u.password, 4),
-          fullName: `e2e-${u.loginId}`,
-        },
-      });
-    }
-
-    tokenA = ((await login(USER_A).expect(200)).body as LoginBody).accessToken;
-    tokenB = ((await login(USER_B).expect(200)).body as LoginBody).accessToken;
+    tokenA = ((await authDevice(DEVICE_A).expect(200)).body as TokenBody)
+      .accessToken;
+    tokenB = ((await authDevice(DEVICE_B).expect(200)).body as TokenBody)
+      .accessToken;
+    adminToken = (
+      (
+        await adminLogin({ loginId: 'admin', password: ADMIN_PASSWORD }).expect(
+          200,
+        )
+      ).body as TokenBody
+    ).accessToken;
   });
 
   afterAll(async () => {
     // Deliveries cascade with their users.
     await prisma?.user.deleteMany({
-      where: { loginId: { in: [USER_A.loginId, USER_B.loginId] } },
+      where: {
+        deviceKeyHash: {
+          in: [hashDeviceKey(DEVICE_A), hashDeviceKey(DEVICE_B)],
+        },
+      },
     });
     await app?.close();
   });
 
-  describe('POST /auth/login', () => {
-    it('rejects malformed credentials with 400', async () => {
-      const res = await login({ loginId: '01012345678', password: 'abc' });
-      expect(res.status).toBe(400);
+  describe('POST /auth/device', () => {
+    it('rejects a malformed key with 400', async () => {
+      await authDevice('short').expect(400);
     });
 
-    it('rejects a wrong password with 401', async () => {
-      const res = await login({ ...USER_A, password: '99999999' });
-      expect(res.status).toBe(401);
-    });
-
-    it('rate-limits repeated attempts with 429', async () => {
-      const statuses: number[] = [];
-      for (let i = 0; i < 6; i += 1) {
-        statuses.push(
-          (await login({ ...USER_B, password: '00000000' })).status,
-        );
-      }
-      expect(statuses).toContain(429);
+    it('returns the same account for the same key', async () => {
+      const again = (await authDevice(DEVICE_A).expect(200)).body as TokenBody;
+      const me = (token: string) =>
+        request(app.getHttpServer())
+          .get('/users/me')
+          .set('Authorization', `Bearer ${token}`)
+          .expect(200);
+      const [first, second] = await Promise.all([
+        me(tokenA),
+        me(again.accessToken),
+      ]);
+      expect((second.body as { id: number }).id).toBe(
+        (first.body as { id: number }).id,
+      );
     });
   });
 
@@ -98,16 +107,101 @@ describe('Voice Delivery API (e2e)', () => {
         .expect(401);
     });
 
-    it('returns the user without the password hash', async () => {
+    it('returns the account without secrets', async () => {
       const res = await request(app.getHttpServer())
         .get('/users/me')
         .set('Authorization', `Bearer ${tokenA}`)
         .expect(200);
-      expect(res.body).toMatchObject({
-        loginId: USER_A.loginId,
-        churchName: 'joongang',
-      });
+      expect(res.body).toMatchObject({ fullName: '' });
       expect(res.body).not.toHaveProperty('password');
+      expect(res.body).not.toHaveProperty('deviceKeyHash');
+    });
+
+    it('refuses admin tokens on member routes', async () => {
+      await request(app.getHttpServer())
+        .get('/users/me')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(403);
+    });
+  });
+
+  describe('admin dashboard', () => {
+    const api = () => request(app.getHttpServer());
+
+    it('rejects a wrong admin password with 401', async () => {
+      await adminLogin({ loginId: 'admin', password: 'wrong-password' }).expect(
+        401,
+      );
+    });
+
+    it('refuses device tokens', async () => {
+      await api()
+        .get('/admin/usage')
+        .set('Authorization', `Bearer ${tokenA}`)
+        .expect(403);
+    });
+
+    it("counts a device's deliveries today, this week and this month", async () => {
+      const created = await api()
+        .post('/deliveries')
+        .set('Authorization', `Bearer ${tokenB}`)
+        .send({
+          delivery_date: '2026-12-01',
+          company_name: '대시보드마트',
+          badge_color: '#413742',
+        })
+        .expect(201);
+
+      const res = await api()
+        .get('/admin/usage')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const body = res.body as {
+        today: { deliveries: number; activeUsers: number; newUsers: number };
+        accounts: { id: number; today: number; week: number; month: number }[];
+      };
+      const meB = (
+        await api()
+          .get('/users/me')
+          .set('Authorization', `Bearer ${tokenB}`)
+          .expect(200)
+      ).body as { id: number };
+      expect(body.accounts.find((a) => a.id === meB.id)).toMatchObject({
+        today: 1,
+        week: 1,
+        month: 1,
+      });
+      expect(body.today.activeUsers).toBeGreaterThanOrEqual(1);
+      expect(body.today.newUsers).toBeGreaterThanOrEqual(2);
+
+      const series = await api()
+        .get(`/admin/usage/series?unit=day&userId=${meB.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const points = series.body as { deliveries: number }[];
+      expect(points).toHaveLength(30);
+      expect(points[points.length - 1]).toMatchObject({
+        deliveries: 1,
+        activeUsers: 1,
+      });
+
+      await prisma.deliveryRecord.delete({
+        where: {
+          delivery_number: (created.body as { delivery_number: number })
+            .delivery_number,
+        },
+      });
+    });
+
+    it.each([
+      ['unit=year', 400],
+      ['unit=week&userId=0', 400],
+      ['unit=month&userId=999999999', 404],
+    ])('series?%s → %i', async (query, status) => {
+      await api()
+        .get(`/admin/usage/series?${query}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(status);
     });
   });
 
